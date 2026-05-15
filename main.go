@@ -46,9 +46,17 @@ func newBookHandler(w http.ResponseWriter, r *http.Request) {
 	b.ID = fmt.Sprintf("%d", time.Now().UnixNano())
 	// save the book to the library
 	books[b.ID] = b
+
+	// send a confirmation to the client
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(b); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 // GET 		/books/{id}: 	Return one book by ID
+
 // PUT		/books/{id}:	Mark a book as read
 // DELETE	/books/{id}:	Remove a book
 
