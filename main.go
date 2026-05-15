@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -17,7 +18,7 @@ type Book struct {
 
 var books = map[string]Book{
 	"1": Book{ID: "1", Title: "The Way of Kings", Author: "Brandon Sanderson", Read: true},
-	"4": Book{ID: "4", Title: "Lord of the Rings", Author: "J.R.Tolkien", Read: false},
+	"2": Book{ID: "2", Title: "Lord of the Rings", Author: "J.R.Tolkien", Read: false},
 }
 
 // endpoints to implement:
@@ -35,6 +36,18 @@ func getBookHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST 	/books: 		Add a new book (body contains title+author)
+func newBookHandler(w http.ResponseWriter, r *http.Request) {
+	// decode posting from request into a new book
+	var b Book
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+	}
+	b.Read = false
+	b.ID = fmt.Sprintf("%d", time.Now().UnixNano())
+	// save the book to the library
+	books[b.ID] = b
+}
+
 // GET 		/books/{id}: 	Return one book by ID
 // PUT		/books/{id}:	Mark a book as read
 // DELETE	/books/{id}:	Remove a book
@@ -43,6 +56,7 @@ func main() {
 	r := chi.NewRouter()
 
 	r.Get("/books", getBookHandler)
+	r.Post("/books", newBookHandler)
 
 	fmt.Println("Listening...")
 	err := http.ListenAndServe(":8080", r)
