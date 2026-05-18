@@ -1,13 +1,22 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/joho/godotenv"
 )
+
+type App struct {
+	db *sql.DB
+}
 
 type Book struct {
 	ID     string `json:"id"`
@@ -23,7 +32,7 @@ var books = map[string]Book{
 
 // endpoints to implement:
 // GET 		/books: 		Return all books as a JSON array
-func getBookHandler(w http.ResponseWriter, r *http.Request) {
+func (a *App) getBookHandler(w http.ResponseWriter, r *http.Request) {
 	listedBooks := make([]Book, 0)
 
 	for _, book := range books {
@@ -36,7 +45,7 @@ func getBookHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST 	/books: 		Add a new book (body contains title+author)
-func newBookHandler(w http.ResponseWriter, r *http.Request) {
+func (a *App) newBookHandler(w http.ResponseWriter, r *http.Request) {
 	// decode posting from request into a new book
 	var b Book
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
@@ -56,7 +65,7 @@ func newBookHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET 		/books/{id}: 	Return one book by ID
-func getSpecificBook(w http.ResponseWriter, r *http.Request) {
+func (a *App) getSpecificBook(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if book, ok := books[id]; !ok {
 		http.Error(w, "book not found", http.StatusNotFound)
@@ -69,7 +78,7 @@ func getSpecificBook(w http.ResponseWriter, r *http.Request) {
 }
 
 // PUT		/books/{id}:	Mark a book as read
-func markRead(w http.ResponseWriter, r *http.Request) {
+func (a *App) markRead(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	book, ok := books[id]
 	if !ok {
@@ -86,7 +95,7 @@ func markRead(w http.ResponseWriter, r *http.Request) {
 }
 
 // DELETE	/books/{id}:	Remove a book
-func deleteBook(w http.ResponseWriter, r *http.Request) {
+func (a *App) deleteBook(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	book, ok := books[id]
 	if !ok {
@@ -102,16 +111,39 @@ func deleteBook(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	// Load .env file
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
+	// get database url and open database
+	connectString := os.Getenv("DATABASE_URL")
+	db, err := sql.Open("pgx", connectString)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	// ping to test connection
+	if err = db.Ping(); err != nil {
+		log.Fatal(err)
+	}
+
+	// create database struct
+	app := App{db: db}
+
+	// create a new router and add handlers
 	r := chi.NewRouter()
 
-	r.Get("/books", getBookHandler)
-	r.Post("/books", newBookHandler)
-	r.Get("/books/{id}", getSpecificBook)
-	r.Put("/books/{id}", markRead)
-	r.Delete("/books/{id}", deleteBook)
+	r.Get("/books", app.getBookHandler)
+	r.Post("/books", app.newBookHandler)
+	r.Get("/books/{id}", app.getSpecificBook)
+	r.Put("/books/{id}", app.markRead)
+	r.Delete("/books/{id}", app.deleteBook)
 
 	fmt.Println("Listening...")
-	err := http.ListenAndServe(":8080", r)
+	err = http.ListenAndServe(":8080", r)
 	if err != nil {
 		fmt.Println(err)
 	}
