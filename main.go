@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -19,15 +20,15 @@ type App struct {
 }
 
 type Book struct {
-	ID     string `json:"id"`
+	ID     int    `json:"id"`
 	Title  string `json:"title"`
 	Author string `json:"author"`
 	Read   bool   `json:"read"`
 }
 
 var books = map[string]Book{
-	"1": Book{ID: "1", Title: "The Way of Kings", Author: "Brandon Sanderson", Read: true},
-	"2": Book{ID: "2", Title: "Lord of the Rings", Author: "J.R.Tolkien", Read: false},
+	"1": Book{ID: 1, Title: "The Way of Kings", Author: "Brandon Sanderson", Read: true},
+	"2": Book{ID: 2, Title: "Lord of the Rings", Author: "J.R.Tolkien", Read: false},
 }
 
 // endpoints to implement:
@@ -35,9 +36,38 @@ var books = map[string]Book{
 func (a *App) getBookHandler(w http.ResponseWriter, r *http.Request) {
 	listedBooks := make([]Book, 0)
 
-	for _, book := range books {
-		listedBooks = append(listedBooks, book)
+	//for _, book := range books {
+	//	listedBooks = append(listedBooks, book)
+	//}
+
+	q := `
+	select id, title, author, read
+	from books
+	;
+	`
+
+	rows, err := a.db.Query(q)
+	if err != nil {
+		log.Fatal(err)
+		return
 	}
+	defer rows.Close()
+
+	// scan next row
+	for rows.Next() {
+		// save row into book
+		b := Book{}
+		if err := rows.Scan(&b.ID, &b.Title, &b.Author, &b.Read); err != nil {
+			log.Fatal(err)
+		}
+		listedBooks = append(listedBooks, b)
+	}
+
+	// check error
+	if err := rows.Err(); err != nil {
+		log.Fatal(err)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(listedBooks); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -51,10 +81,12 @@ func (a *App) newBookHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 	}
+
 	b.Read = false
-	b.ID = fmt.Sprintf("%d", time.Now().UnixNano())
+	b.ID = int(time.Now().UnixNano())
+
 	// save the book to the library
-	books[b.ID] = b
+	books[strconv.Itoa(b.ID)] = b
 
 	// send a confirmation to the client
 	w.Header().Set("Content-Type", "application/json")
