@@ -56,15 +56,59 @@ func newBookHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET 		/books/{id}: 	Return one book by ID
+func getSpecificBook(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if book, ok := books[id]; !ok {
+		http.Error(w, "book not found", http.StatusNotFound)
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(book); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
 
 // PUT		/books/{id}:	Mark a book as read
+func markRead(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	book, ok := books[id]
+	if !ok {
+		http.Error(w, "book not found", http.StatusNotFound)
+		return
+	}
+	book.Read = true
+	books[id] = book
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(book); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
 // DELETE	/books/{id}:	Remove a book
+func deleteBook(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	book, ok := books[id]
+	if !ok {
+		http.Error(w, "book not found", http.StatusNotFound)
+		return
+	}
+	delete(books, id)
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(book); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
 
 func main() {
 	r := chi.NewRouter()
 
 	r.Get("/books", getBookHandler)
 	r.Post("/books", newBookHandler)
+	r.Get("/books/{id}", getSpecificBook)
+	r.Put("/books/{id}", markRead)
+	r.Delete("/books/{id}", deleteBook)
 
 	fmt.Println("Listening...")
 	err := http.ListenAndServe(":8080", r)
