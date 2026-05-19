@@ -7,8 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strconv"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -36,16 +34,8 @@ var books = map[string]Book{
 func (a *App) getBookHandler(w http.ResponseWriter, r *http.Request) {
 	listedBooks := make([]Book, 0)
 
-	//for _, book := range books {
-	//	listedBooks = append(listedBooks, book)
-	//}
-
-	q := `
-	select id, title, author, read
-	from books
-	;
-	`
-
+	// query table and grab set of results
+	q := `select id, title, author, read from books;`
 	rows, err := a.db.Query(q)
 	if err != nil {
 		log.Fatal(err)
@@ -68,6 +58,7 @@ func (a *App) getBookHandler(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 
+	// encode and send results back
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(listedBooks); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -81,12 +72,15 @@ func (a *App) newBookHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 	}
-
 	b.Read = false
-	b.ID = int(time.Now().UnixNano())
 
-	// save the book to the library
-	books[strconv.Itoa(b.ID)] = b
+	// insert book into table, using variable insertion of query and then scan to get
+	// the generated ID -- prevent SQL injection using placeholders
+	query := `insert into books (title, author, read) values ($1, $2, $3) returning id`
+	row := a.db.QueryRow(query, b.Title, b.Author, b.Read)
+	if err := row.Scan(&b.ID); err != nil {
+		log.Fatal(err)
+	}
 
 	// send a confirmation to the client
 	w.Header().Set("Content-Type", "application/json")
