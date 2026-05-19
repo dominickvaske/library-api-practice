@@ -3,10 +3,12 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -93,14 +95,40 @@ func (a *App) newBookHandler(w http.ResponseWriter, r *http.Request) {
 // GET 		/books/{id}: 	Return one book by ID
 func (a *App) getSpecificBook(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if book, ok := books[id]; !ok {
+	idInt, err := strconv.Atoi(id)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	//if book, ok := books[id]; !ok {
+	//	http.Error(w, "book not found", http.StatusNotFound)
+	//} else {
+	//	w.Header().Set("Content-Type", "application/json")
+	//	if err := json.NewEncoder(w).Encode(book); err != nil {
+	//		http.Error(w, err.Error(), http.StatusInternalServerError)
+	//	}
+	//}
+
+	var b Book
+	query := `select id, title, author, read from books where id = $1`
+	row := a.db.QueryRow(query, idInt)
+	err = row.Scan(&b.ID, &b.Title, &b.Author, &b.Read)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		// 404 not found
 		http.Error(w, "book not found", http.StatusNotFound)
+	} else if err != nil {
+		// internal server error
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	} else {
+		// send content
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(book); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		err2 := json.NewEncoder(w).Encode(b)
+		if err2 != nil {
+			log.Fatal(err2)
 		}
 	}
+
 }
 
 // PUT		/books/{id}:	Mark a book as read
