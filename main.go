@@ -134,13 +134,26 @@ func (a *App) getSpecificBook(w http.ResponseWriter, r *http.Request) {
 // PUT		/books/{id}:	Mark a book as read
 func (a *App) markRead(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	book, ok := books[id]
-	if !ok {
-		http.Error(w, "book not found", http.StatusNotFound)
-		return
+	idInt, err := strconv.Atoi(id)
+	if err != nil {
+		log.Fatal(err)
 	}
-	book.Read = true
-	books[id] = book
+	// update book
+	query := `update books set read=$1 where id=$2`
+	result, err := a.db.Exec(query, true, idInt)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// check if no rows updated
+	if rows, _ := result.RowsAffected(); rows == 0 {
+		http.Error(w, "book not found", http.StatusNotFound)
+	}
+
+	var book Book
+	query = `select id, title, author, read from books where id=$1`
+	row := a.db.QueryRow(query, idInt)
+	row.Scan(&book.ID, &book.Title, &book.Author, &book.Read)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(book); err != nil {
@@ -151,12 +164,25 @@ func (a *App) markRead(w http.ResponseWriter, r *http.Request) {
 // DELETE	/books/{id}:	Remove a book
 func (a *App) deleteBook(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	book, ok := books[id]
-	if !ok {
+	idInt, err := strconv.Atoi(id)
+
+	// grab the book to be deleted
+	var book Book
+	query := `select id, title, author, read from books where id=$1`
+	row := a.db.QueryRow(query, idInt)
+	err = row.Scan(&book.ID, &book.Title, &book.Author, &book.Read)
+	if err != nil {
 		http.Error(w, "book not found", http.StatusNotFound)
 		return
 	}
-	delete(books, id)
+
+	// delete from database
+	// no need to check if not deleted since above check
+	query = `delete from books where id=$1`
+	_, err = a.db.Exec(query, idInt)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(book); err != nil {
