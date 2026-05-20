@@ -26,65 +26,53 @@ type Book struct {
 	Read   bool   `json:"read"`
 }
 
-var books = map[string]Book{
-	"1": Book{ID: 1, Title: "The Way of Kings", Author: "Brandon Sanderson", Read: true},
-	"2": Book{ID: 2, Title: "Lord of the Rings", Author: "J.R.Tolkien", Read: false},
-}
-
-// endpoints to implement:
-// GET 		/books: 		Return all books as a JSON array
+// GET /books: Return all books as a JSON array
 func (a *App) getBookHandler(w http.ResponseWriter, r *http.Request) {
 	listedBooks := make([]Book, 0)
 
-	// query table and grab set of results
-	q := `select id, title, author, read from books;`
-	rows, err := a.db.Query(q)
+	rows, err := a.db.Query(`select id, title, author, read from books`)
 	if err != nil {
-		log.Fatal(err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
 
-	// scan next row
 	for rows.Next() {
-		// save row into book
 		b := Book{}
 		if err := rows.Scan(&b.ID, &b.Title, &b.Author, &b.Read); err != nil {
-			log.Fatal(err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
 		}
 		listedBooks = append(listedBooks, b)
 	}
 
-	// check error
 	if err := rows.Err(); err != nil {
-		log.Fatal(err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
 	}
 
-	// encode and send results back
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(listedBooks); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
-// POST 	/books: 		Add a new book (body contains title+author)
+// POST /books: Add a new book (body contains title+author)
 func (a *App) newBookHandler(w http.ResponseWriter, r *http.Request) {
-	// decode posting from request into a new book
 	var b Book
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
+		return
 	}
 	b.Read = false
 
-	// insert book into table, using variable insertion of query and then scan to get
-	// the generated ID -- prevent SQL injection using placeholders
 	query := `insert into books (title, author, read) values ($1, $2, $3) returning id`
 	row := a.db.QueryRow(query, b.Title, b.Author, b.Read)
 	if err := row.Scan(&b.ID); err != nil {
-		log.Fatal(err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
 	}
 
-	// send a confirmation to the client
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(b); err != nil {
@@ -92,68 +80,55 @@ func (a *App) newBookHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GET 		/books/{id}: 	Return one book by ID
+// GET /books/{id}: Return one book by ID
 func (a *App) getSpecificBook(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	idInt, err := strconv.Atoi(id)
+	idInt, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
-		log.Fatal(err)
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
 	}
-
-	//if book, ok := books[id]; !ok {
-	//	http.Error(w, "book not found", http.StatusNotFound)
-	//} else {
-	//	w.Header().Set("Content-Type", "application/json")
-	//	if err := json.NewEncoder(w).Encode(book); err != nil {
-	//		http.Error(w, err.Error(), http.StatusInternalServerError)
-	//	}
-	//}
 
 	var b Book
 	query := `select id, title, author, read from books where id = $1`
-	row := a.db.QueryRow(query, idInt)
-	err = row.Scan(&b.ID, &b.Title, &b.Author, &b.Read)
+	err = a.db.QueryRow(query, idInt).Scan(&b.ID, &b.Title, &b.Author, &b.Read)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		// 404 not found
 		http.Error(w, "book not found", http.StatusNotFound)
 	} else if err != nil {
-		// internal server error
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
 	} else {
-		// send content
 		w.Header().Set("Content-Type", "application/json")
-		err2 := json.NewEncoder(w).Encode(b)
-		if err2 != nil {
-			log.Fatal(err2)
+		if err := json.NewEncoder(w).Encode(b); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}
-
 }
 
-// PUT		/books/{id}:	Mark a book as read
+// PUT /books/{id}: Mark a book as read
 func (a *App) markRead(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	idInt, err := strconv.Atoi(id)
+	idInt, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
-		log.Fatal(err)
-	}
-	// update book
-	query := `update books set read=$1 where id=$2`
-	result, err := a.db.Exec(query, true, idInt)
-	if err != nil {
-		log.Fatal(err)
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
 	}
 
-	// check if no rows updated
+	result, err := a.db.Exec(`update books set read=$1 where id=$2`, true, idInt)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 	if rows, _ := result.RowsAffected(); rows == 0 {
 		http.Error(w, "book not found", http.StatusNotFound)
+		return
 	}
 
 	var book Book
-	query = `select id, title, author, read from books where id=$1`
-	row := a.db.QueryRow(query, idInt)
-	row.Scan(&book.ID, &book.Title, &book.Author, &book.Read)
+	err = a.db.QueryRow(`select id, title, author, read from books where id=$1`, idInt).
+		Scan(&book.ID, &book.Title, &book.Author, &book.Read)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(book); err != nil {
@@ -161,27 +136,28 @@ func (a *App) markRead(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// DELETE	/books/{id}:	Remove a book
+// DELETE /books/{id}: Remove a book
 func (a *App) deleteBook(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	idInt, err := strconv.Atoi(id)
-
-	// grab the book to be deleted
-	var book Book
-	query := `select id, title, author, read from books where id=$1`
-	row := a.db.QueryRow(query, idInt)
-	err = row.Scan(&book.ID, &book.Title, &book.Author, &book.Read)
+	idInt, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
-		http.Error(w, "book not found", http.StatusNotFound)
+		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
 
-	// delete from database
-	// no need to check if not deleted since above check
-	query = `delete from books where id=$1`
-	_, err = a.db.Exec(query, idInt)
-	if err != nil {
-		log.Fatal(err)
+	var book Book
+	err = a.db.QueryRow(`select id, title, author, read from books where id=$1`, idInt).
+		Scan(&book.ID, &book.Title, &book.Author, &book.Read)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "book not found", http.StatusNotFound)
+		return
+	} else if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if _, err = a.db.Exec(`delete from books where id=$1`, idInt); err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -191,31 +167,24 @@ func (a *App) deleteBook(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Load .env file
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
 	}
 
-	// get database url and open database
-	connectString := os.Getenv("DATABASE_URL")
-	db, err := sql.Open("pgx", connectString)
+	db, err := sql.Open("pgx", os.Getenv("DATABASE_URL"))
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
 
-	// ping to test connection
 	if err = db.Ping(); err != nil {
 		log.Fatal(err)
 	}
 
-	// create database struct
 	app := App{db: db}
 
-	// create a new router and add handlers
 	r := chi.NewRouter()
-
 	r.Get("/books", app.getBookHandler)
 	r.Post("/books", app.newBookHandler)
 	r.Get("/books/{id}", app.getSpecificBook)
@@ -223,8 +192,7 @@ func main() {
 	r.Delete("/books/{id}", app.deleteBook)
 
 	fmt.Println("Listening...")
-	err = http.ListenAndServe(":8080", r)
-	if err != nil {
+	if err = http.ListenAndServe(":8080", r); err != nil {
 		fmt.Println(err)
 	}
 }
